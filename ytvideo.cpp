@@ -155,7 +155,7 @@ void YTVideo::parseFmtUrlMap(const QString &fmtUrlMap, bool fromWebPage) {
             if (sp.isEmpty())
                 url += QLatin1String("&signature=") + sig;
             else
-                url += '&' + sp + '=' + sig;
+                url += '&' + sp.toString() + '=' + sig;
         }
 
         if (!url.contains(QLatin1String("ratebypass"))) url += QLatin1String("&ratebypass=yes");
