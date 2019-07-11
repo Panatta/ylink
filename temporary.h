@@ -22,7 +22,6 @@ $END_LICENSE */
 #define TEMPORARY_H
 
 #include <QtCore>
-#include <QDesktopServices>
 
 class Temporary {
 
