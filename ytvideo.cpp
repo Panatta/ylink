@@ -66,7 +66,7 @@ void YTVideo::getVideoInfo() {
                            .arg(videoId, elTypes.at(elIndex)));
     }
 
-    QObject *reply = HttpUtils::yt().get(url);
+    QObject *reply = HttpUtils::stealthAndNotCached().get(url);
     connect(reply, SIGNAL(data(QByteArray)), SLOT(gotVideoInfo(QByteArray)));
     connect(reply, SIGNAL(error(QString)), SLOT(emitError(QString)));
 
@@ -93,6 +93,7 @@ void YTVideo::gotVideoInfo(const QByteArray &bytes) {
                     QString url = formatObj["url"].toString();
                     if (url.isEmpty()) {
                         QString cipher = formatObj["cipher"].toString();
+                        if (cipher.isEmpty()) cipher = formatObj["signatureCipher"].toString();
                         QUrlQuery q(cipher);
                         qDebug() << "Cipher is " << q.toString();
                         url = q.queryItemValue("url").trimmed();
@@ -152,6 +153,7 @@ void YTVideo::gotVideoInfo(const QByteArray &bytes) {
 */
 
     if (urlMap.isEmpty()) {
+        qDebug() << "empty urlMap, trying next el";
         elIndex++;
         getVideoInfo();
         return;
@@ -243,7 +245,7 @@ void YTVideo::parseFmtUrlMap(const QString &fmtUrlMap) {
 
     qDebug() << "available formats" << urlMap.keys();
     const QVector<VideoDefinition> &definitions = VideoDefinition::getDefinitions();
-    int previousIndex = std::max(definitions.indexOf(definition) - 1, 0);
+    int previousIndex = std::max(definitions.indexOf(definition), 0);
     for (; previousIndex >= 0; previousIndex--) {
         const VideoDefinition &previousDefinition = definitions.at(previousIndex);
         qDebug() << "Testing format" << previousDefinition.getCode();
@@ -267,13 +269,42 @@ void YTVideo::loadWebPage() {
     q.addQueryItem("bpctr", "9999999999");
     url.setQuery(q);
 
-    // QUrl url("https://www.youtube.com/embed/" + videoId);
-
     qDebug() << "Loading webpage" << url;
     QObject *reply = HttpUtils::yt().get(url);
     connect(reply, SIGNAL(data(QByteArray)), SLOT(scrapeWebPage(QByteArray)));
     connect(reply, SIGNAL(error(QString)), SLOT(emitError(QString)));
     // see you in scrapWebPage(QByteArray)
+}
+
+void YTVideo::loadEmbedPage() {
+    QUrl url("https://www.youtube.com/embed/" + videoId);
+    auto reply = HttpUtils::yt().get(url);
+    connect(reply, &HttpReply::finished, this, [this](const HttpReply &reply) {
+        if (!reply.isSuccessful()) {
+            getVideoInfo();
+            return;
+        }
+        static const QRegExp embedRE("\"sts\"\\s*:\\s*(\\d+)");
+        QString sts;
+        if (embedRE.indexIn(reply.body()) == -1) {
+            // qDebug() << "Cannot get sts" << reply.body();
+        } else {
+            sts = embedRE.cap(1);
+            qDebug() << "sts" << sts;
+        }
+        QUrlQuery q;
+        q.addQueryItem("video_id", videoId);
+        q.addQueryItem("eurl", "https://youtube.googleapis.com/v/" + videoId);
+        q.addQueryItem("sts", sts);
+        QUrl url = QUrl("https://www.youtube.com/get_video_info");
+        url.setQuery(q);
+        HttpReply *r = HttpUtils::stealthAndNotCached().get(url);
+        connect(r, &HttpReply::data, this, [this](const QByteArray &bytes) {
+            QByteArray decodedBytes = QByteArray::fromPercentEncoding(bytes);
+            gotVideoInfo(decodedBytes);
+        });
+        connect(r, &HttpReply::error, this, &YTVideo::emitError);
+    });
 }
 
 void YTVideo::emitError(const QString &message) {
@@ -288,11 +319,12 @@ void YTVideo::scrapeWebPage(const QByteArray &bytes) {
     // qDebug() << "scrapeWebPage" << html;
 
     static const QRegExp ageGateRE(JsFunctions::instance()->ageGateRE());
-    if (ageGateRE.indexIn(html) != -1) {
+    if (ageGateRE.indexIn(html) != -1 || html.contains("desktopLegacyAgeGateReason")) {
         qDebug() << "Found ageGate";
         ageGate = true;
-        elIndex = 4;
-        getVideoInfo();
+        // elIndex = 4;
+        // getVideoInfo();
+        loadEmbedPage();
         return;
     }
 
@@ -311,7 +343,7 @@ void YTVideo::scrapeWebPage(const QByteArray &bytes) {
     }
 
     if (fmtUrlMap.isEmpty() && urlMap.isEmpty()) {
-        qWarning() << "Cannot get fmtUrlMap from video page. Trying next el";
+        qDebug() << "Cannot get fmtUrlMap from video page. Trying next el";
         // elIndex++;
         // getVideoInfo();
         // return;
@@ -332,9 +364,11 @@ void YTVideo::scrapeWebPage(const QByteArray &bytes) {
                     jsPlayerIdRe.indexIn(jsPlayerUrl);
                     QString jsPlayerId = jsPlayerRe.cap(1);
                     */
-        QObject *reply = HttpUtils::yt().get(jsPlayerUrl);
+        QObject *reply = HttpUtils::stealthAndNotCached().get(jsPlayerUrl);
         connect(reply, SIGNAL(data(QByteArray)), SLOT(parseJsPlayer(QByteArray)));
         connect(reply, SIGNAL(error(QString)), SLOT(emitError(QString)));
+    } else {
+        qDebug() << "Cannot find jsPlayer";
     }
 }
 
@@ -366,7 +400,7 @@ void YTVideo::parseJsPlayer(const QByteArray &bytes) {
             break;
         }
     }
-    if (sigFuncName.isEmpty()) qDebug() << "Empty signature function name";
+    if (sigFuncName.isEmpty()) qDebug() << "Empty signature function name" << jsPlayer;
 
     // parseFmtUrlMap(fmtUrlMap, true);
     getVideoInfo();

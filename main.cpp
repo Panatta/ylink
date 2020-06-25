@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include <cstdlib>
+#include <time.h>
 
 #include "ytvideo.h"
 
@@ -17,6 +18,8 @@ int main(int argc, char **argv)
         qCritical() << "Wrong args count. Exiting.";
         return EXIT_FAILURE;
     }
+
+    qsrand(time(NULL));
 
     YTVideo *video = new YTVideo(app.arguments().at(1));
 

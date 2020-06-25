@@ -42,16 +42,18 @@ JsFunctions::JsFunctions(const QString &url, QObject *parent)
                                                  QDateTime::currentDateTime().toTime_t() - 1800;
         if (stale) loadJs();
     } else {
+        /*
         QFile resFile(QLatin1String(":/") + jsFilename());
         resFile.open(QIODevice::ReadOnly | QIODevice::Text);
         parseJs(QString::fromUtf8(resFile.readAll()));
+        */
         loadJs();
     }
 }
 
 void JsFunctions::parseJs(const QString &js) {
+    // qDebug() << "Js Parsing" << js;
     if (js.isEmpty()) return;
-    // qDebug() << "Parsing" << js;
     if (engine) delete engine;
     engine = new QJSEngine(this);
     engine->evaluate(js);
@@ -71,6 +73,7 @@ QString JsFunctions::jsPath() {
 }
 
 void JsFunctions::loadJs() {
+    qDebug() << "Js Loading" << url;
     QUrl url(this->url);
     QUrlQuery q;
     q.addQueryItem("v", Constants::VERSION);
